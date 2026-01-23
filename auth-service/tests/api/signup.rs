@@ -1,5 +1,5 @@
 use crate::helpers::{get_random_email, TestApp};
-use auth_service::{routes::SignupResponse, ErrorResponse};
+use auth_service::{ErrorResponse};
 
 #[tokio::test]
 async fn should_return_422_if_malformed_input() {
