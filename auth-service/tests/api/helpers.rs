@@ -1,19 +1,22 @@
+use auth_service::services::HashmapUserStore;
+use auth_service::{app_state::AppState, Application};
+use reqwest::cookie::Jar;
+use reqwest::Response;
+use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use auth_service::{Application, app_state::AppState};
-use auth_service::services::HashmapUserStore;
-use serde::Serialize;
 use uuid::Uuid;
 
 pub struct TestApp {
     pub address: String,
+    pub cookie_jar: Arc<Jar>,
     pub http_client: reqwest::Client,
 }
 
 impl TestApp {
     pub async fn new() -> Self {
-    let user_store = Arc::new(RwLock::new(HashmapUserStore::default()));
-    let app_state = AppState { user_store };
+        let user_store = Arc::new(RwLock::new(HashmapUserStore::default()));
+        let app_state = AppState { user_store };
 
         let app = Application::build(app_state, "127.0.0.1:0")
             .await
@@ -26,12 +29,17 @@ impl TestApp {
         #[allow(clippy::let_underscore_future)]
         let _ = tokio::spawn(app.run());
 
-        let http_client = reqwest::Client::new(); // Create a Reqwest http client instance
+        let cookie_jar = Arc::new(Jar::default());
+        let http_client = reqwest::Client::builder()
+            .cookie_provider(cookie_jar.clone())
+            .build()
+            .unwrap();
 
         // Create new `TestApp` instance and return it
         TestApp {
             address,
-            http_client
+            cookie_jar,
+            http_client,
         }
     }
 
@@ -88,4 +96,24 @@ impl TestApp {
 
 pub fn get_random_email() -> String {
     format!("{}@example.com", Uuid::new_v4())
+}
+
+pub async fn create_user(app: &TestApp) -> Response {
+    let random_email = get_random_email();
+    let signup_body = serde_json::json!({
+        "email": random_email,
+        "password": "password123",
+        "requires2FA": false
+    });
+    let response = app.post_signup(&signup_body).await;
+    assert_eq!(response.status().as_u16(), 201);
+
+    let login_body = serde_json::json!({
+        "email": random_email,
+        "password": "password123",
+    });
+    let response = app.post_login(&login_body).await;
+    assert_eq!(response.status().as_u16(), 200);
+
+    response
 }

@@ -1,29 +1,23 @@
-pub mod routes;
-pub mod domain;
-pub mod services;
 pub mod app_state;
+pub mod domain;
+pub mod routes;
+pub mod services;
+pub mod utils;
 
-use std::error::Error;
+use app_state::AppState;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get_service, post},
     serve::Serve,
-    Json,
-    Router
+    Json, Router,
 };
+use domain::AuthAPIError;
+use routes::{login, logout, signup, verify_2fa, verify_token};
+use serde::{Deserialize, Serialize};
+use std::error::Error;
 use tokio::net::TcpListener;
 use tower_http::services::{ServeDir, ServeFile};
-use serde::{Serialize, Deserialize};
-use routes::{
-    login,
-    logout,
-    signup,
-    verify_2fa,
-    verify_token,
-};
-use app_state::AppState;
-use domain::AuthAPIError;
 
 // This struct encapsulates our application-related logic.
 pub struct Application {
@@ -36,8 +30,7 @@ pub struct Application {
 impl Application {
     pub async fn build(app_state: AppState, address: &str) -> Result<Self, Box<dyn Error>> {
         let assets = get_service(
-            ServeDir::new("assets")
-                .not_found_service(ServeFile::new("assets/index.html"))
+            ServeDir::new("assets").not_found_service(ServeFile::new("assets/index.html")),
         );
         let router = Router::new()
             .fallback_service(assets)
@@ -71,7 +64,11 @@ impl IntoResponse for AuthAPIError {
         let (status, error_message) = match self {
             AuthAPIError::UserAlreadyExists => (StatusCode::CONFLICT, "User already exists"),
             AuthAPIError::InvalidCredentials => (StatusCode::BAD_REQUEST, "Invalid credentials"),
-            AuthAPIError::IncorrectCredentials => (StatusCode::UNAUTHORIZED, "Incorrect credentials"),
+            AuthAPIError::IncorrectCredentials => {
+                (StatusCode::UNAUTHORIZED, "Incorrect credentials")
+            }
+            AuthAPIError::MissingToken => (StatusCode::BAD_REQUEST, "Missing token"),
+            AuthAPIError::InvalidToken => (StatusCode::UNAUTHORIZED, "Invalid token"),
             AuthAPIError::UnexpectedError => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Unexpected error")
             }

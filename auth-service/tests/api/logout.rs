@@ -1,10 +1,59 @@
-use crate::helpers::TestApp;
+use crate::helpers::{create_user, get_random_email, TestApp};
+use auth_service::utils::constants::JWT_COOKIE_NAME;
+use axum_extra::response;
+use reqwest::Url;
 
 #[tokio::test]
-async fn logout_returns_success() {
+async fn should_return_400_if_jwt_cookie_missing() {
+    let app = TestApp::new().await;
+    let response = app.post_logout().await;
+    assert_eq!(response.status().as_u16(), 400, "Failed for missing cookie")
+}
+
+#[tokio::test]
+async fn should_return_401_if_invalid_token() {
     let app = TestApp::new().await;
 
-    let response = app.post_logout().await;
+    // add invalid cookie
+    app.cookie_jar.add_cookie_str(
+        &format!(
+            "{}=invalid; HttpOnly; SameSite=Lax; Secure; Path=/",
+            JWT_COOKIE_NAME
+        ),
+        &Url::parse("http://127.0.0.1").expect("Failed to parse URL"),
+    );
 
-    assert_eq!(response.status().as_u16(), 200);
+    let response = app.post_logout().await;
+    assert_eq!(response.status().as_u16(), 401, "Failed for invalid token")
+}
+
+#[tokio::test]
+async fn should_return_200_if_valid_jwt_cookie() {
+    let app = TestApp::new().await;
+    let login_resp = create_user(&app).await;
+    let auth_cookie = login_resp
+        .cookies()
+        .find(|cookie| cookie.name() == JWT_COOKIE_NAME)
+        .expect("No auth cookie found");
+    assert!(!auth_cookie.value().is_empty());
+    let response = app.post_logout().await;
+    assert_eq!(response.status().as_u16(), 200, "Valid Token")
+}
+
+#[tokio::test]
+async fn should_return_400_if_logout_called_twice_in_a_row() {
+    let app = TestApp::new().await;
+    let login_resp = create_user(&app).await;
+    let auth_cookie = login_resp
+        .cookies()
+        .find(|cookie| cookie.name() == JWT_COOKIE_NAME)
+        .expect("No auth cookie found");
+    assert!(!auth_cookie.value().is_empty());
+    let _ = app.post_logout().await;
+    let response2 = app.post_logout().await;
+    assert_eq!(
+        response2.status().as_u16(),
+        400,
+        "Failed for calling logout twice"
+    )
 }
