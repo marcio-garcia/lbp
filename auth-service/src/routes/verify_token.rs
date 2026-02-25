@@ -7,13 +7,16 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 pub async fn verify_token(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(request): Json<VerifyTokenRequest>,
 ) -> Result<impl IntoResponse, AuthAPIError> {
-    println!("********verify_token, token {}", request.token.clone());
-    let Ok(_) = Token::parse(request.token).await else {
+    let Ok(token) = Token::parse(request.token) else {
         return Err(AuthAPIError::InvalidToken);
     };
+    let store = state.banned_token_store.read().await;
+    if store.contains(&token).await {
+        return Err(AuthAPIError::InvalidToken);
+    }
     Ok(StatusCode::OK)
 }
 

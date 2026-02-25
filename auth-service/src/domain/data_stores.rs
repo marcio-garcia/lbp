@@ -21,5 +21,5 @@ pub trait UserStore: Send + Sync {
 #[async_trait::async_trait]
 pub trait BannedTokenStore: Send + Sync {
     async fn add_token(&mut self, token: Token);
-    async fn contains(&self, token: Token) -> bool;
+    async fn contains(&self, token: &Token) -> bool;
 }

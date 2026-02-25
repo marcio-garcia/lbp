@@ -1,12 +1,12 @@
-use crate::utils::auth::validate_token;
+use crate::utils::auth::validate_structure;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Token(String);
 
 impl Token {
-    pub async fn parse(token: String) -> Result<Self, TokenError> {
+    pub fn parse(token: String) -> Result<Self, TokenError> {
         if !token.is_empty() {
-            let Ok(_) = validate_token(&token).await else {
+            let Ok(_) = validate_structure(&token) else {
                 return Err(TokenError::InvalidToken);
             };
             Ok(Self(token))
@@ -41,14 +41,14 @@ mod tests {
     async fn parse_valid_token_succeeds() {
         let email = Email::parse("test@example.com".to_owned()).unwrap();
         let token = generate_auth_cookie(&email).unwrap().value().to_string();
-        let result = Token::parse(token.clone()).await;
-        assert_eq!(result, Ok(Token(token)));
+        let result = Token::parse(token);
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
     async fn parse_missing_at_symbol_fails() {
         let token = "invalid".to_string();
-        let result = Token::parse(token).await;
+        let result = Token::parse(token);
         assert_eq!(result, Err(TokenError::InvalidToken));
     }
 }

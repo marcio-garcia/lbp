@@ -20,8 +20,8 @@ impl BannedTokenStore for HashsetBannedTokenStore {
         self.tokens.insert(token);
     }
 
-    async fn contains(&self, token: Token) -> bool {
-        self.tokens.contains(&token)
+    async fn contains(&self, token: &Token) -> bool {
+        self.tokens.contains(token)
     }
 }
 
@@ -45,7 +45,7 @@ mod tests {
 
         let token_str = cookie.value().to_owned();
 
-        let Ok(token) = Token::parse(token_str).await else {
+        let Ok(token) = Token::parse(token_str) else {
             panic!("could not create token")
         };
 
@@ -63,13 +63,13 @@ mod tests {
             panic!("could not generate token")
         };
         let token_str = cookie.value().to_owned();
-        let Ok(token) = Token::parse(token_str).await else {
+        let Ok(token) = Token::parse(token_str) else {
             panic!("could not create token")
         };
         let result = store.add_token(token.clone()).await;
         assert_eq!((), result);
 
-        let exists = store.contains(token).await;
+        let exists = store.contains(&token).await;
         assert!(exists);
     }
 }
