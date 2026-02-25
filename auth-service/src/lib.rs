@@ -13,11 +13,15 @@ use axum::{
     Json, Router,
 };
 use domain::AuthAPIError;
+use reqwest::Method;
 use routes::{login, logout, signup, verify_2fa, verify_token};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tokio::net::TcpListener;
+use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
+
+use crate::utils::constants::env;
 
 // This struct encapsulates our application-related logic.
 pub struct Application {
@@ -29,6 +33,19 @@ pub struct Application {
 
 impl Application {
     pub async fn build(app_state: AppState, address: &str) -> Result<Self, Box<dyn Error>> {
+        // Allow the app service(running on our local machine and in production) to call the auth service
+        let allowed_origins = [
+            "http://localhost:8000".parse()?,
+            format!("http://{}:8000", env::DROPLET_IP_ENV_VAR).parse()?,
+        ];
+
+        let cors = CorsLayer::new()
+            // Allow GET and POST requests
+            .allow_methods([Method::GET, Method::POST])
+            // Allow cookies to be included in requests
+            .allow_credentials(true)
+            .allow_origin(allowed_origins);
+
         let assets = get_service(
             ServeDir::new("assets").not_found_service(ServeFile::new("assets/index.html")),
         );
@@ -39,7 +56,8 @@ impl Application {
             .route("/verify-2fa", post(verify_2fa))
             .route("/logout", post(logout))
             .route("/verify-token", post(verify_token))
-            .with_state(app_state);
+            .with_state(app_state)
+            .layer(cors);
 
         let listener = tokio::net::TcpListener::bind(address).await?;
         let address = listener.local_addr()?.to_string();

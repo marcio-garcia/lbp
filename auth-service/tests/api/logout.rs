@@ -1,6 +1,5 @@
-use crate::helpers::{create_user, get_random_email, TestApp};
+use crate::helpers::{create_user, TestApp};
 use auth_service::utils::constants::JWT_COOKIE_NAME;
-use axum_extra::response;
 use reqwest::Url;
 
 #[tokio::test]
