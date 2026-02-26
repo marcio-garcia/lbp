@@ -1,14 +1,13 @@
-use std::collections::HashMap;
-use async_trait::async_trait;
 use crate::domain::{Email, Password, User, UserStore, UserStoreError};
+use async_trait::async_trait;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct HashmapUserStore {
     users: HashMap<Email, User>,
 }
 
-impl HashmapUserStore {
-}
+impl HashmapUserStore {}
 
 #[async_trait]
 impl UserStore for HashmapUserStore {
@@ -34,7 +33,11 @@ impl UserStore for HashmapUserStore {
         return Err(UserStoreError::UserNotFound);
     }
 
-    async fn validate_user(&self, email: &Email, password: &Password) -> Result<(), UserStoreError> {
+    async fn validate_user(
+        &self,
+        email: &Email,
+        password: &Password,
+    ) -> Result<(), UserStoreError> {
         if let Some(user) = self.users.get(email) {
             if &user.password == password {
                 return Ok(());
