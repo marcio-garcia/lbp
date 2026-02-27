@@ -12,7 +12,7 @@ async fn should_return_400_if_jwt_cookie_missing() {
 #[tokio::test]
 async fn should_return_200_if_valid_jwt_cookie() {
     let app = TestApp::new().await;
-    let login_resp = create_user(&app).await;
+    let login_resp = create_user(&app, false).await;
     let auth_cookie = login_resp
         .cookies()
         .find(|cookie| cookie.name() == JWT_COOKIE_NAME)
@@ -49,7 +49,7 @@ async fn should_return_401_if_invalid_token() {
 #[tokio::test]
 async fn should_return_400_if_logout_called_twice_in_a_row() {
     let app = TestApp::new().await;
-    let login_resp = create_user(&app).await;
+    let login_resp = create_user(&app, false).await;
     let auth_cookie = login_resp
         .cookies()
         .find(|cookie| cookie.name() == JWT_COOKIE_NAME)

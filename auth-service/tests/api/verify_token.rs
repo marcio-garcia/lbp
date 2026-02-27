@@ -49,7 +49,7 @@ async fn should_return_401_if_invalid_token() {
 #[tokio::test]
 async fn should_return_401_if_banned_token() {
     let app = TestApp::new().await;
-    let login_resp = create_user(&app).await;
+    let login_resp = create_user(&app, false).await;
 
     let auth_cookie = login_resp
         .cookies()
