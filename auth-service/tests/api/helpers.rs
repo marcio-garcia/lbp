@@ -12,6 +12,8 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
     PgPool,
 };
+use sqlx::{Connection, PgConnection};
+use std::str::FromStr;
 use std::{env, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, OnceCell, RwLock};
 use uuid::Uuid;
@@ -294,7 +296,42 @@ async fn clone_database_from_template(db_conn_string: &str, template_db: &str, d
             WHERE table_schema = 'public' AND table_name = 'users'
         )",
     )
-        .fetch_one(&connection)
+    .fetch_one(&connection)
+    .await
+    .expect("Failed to verify users table in cloned database.");
+}
+
+#[allow(dead_code)]
+async fn delete_database(db_name: &str) {
+    let postgresql_conn_url: String = DATABASE_URL.to_owned();
+
+    let connection_options = PgConnectOptions::from_str(&postgresql_conn_url)
+        .expect("Failed to parse PostgreSQL connection string");
+
+    let mut connection = PgConnection::connect_with(&connection_options)
         .await
-        .expect("Failed to verify users table in cloned database.");
+        .expect("Failed to connect to Postgres");
+
+    // Kill any active connections to the database
+    sqlx::query(
+        format!(
+            r#"
+            SELECT pg_terminate_backend(pg_stat_activity.pid)
+            FROM pg_stat_activity
+            WHERE pg_stat_activity.datname = '{}'
+              AND pid <> pg_backend_pid();
+    "#,
+            db_name
+        )
+        .as_str(),
+    )
+    .execute(&mut connection)
+    .await
+    .expect("Failed to drop the database.");
+
+    // Drop the database
+    sqlx::query(format!(r#"DROP DATABASE "{}";"#, db_name).as_str())
+        .execute(&mut connection)
+        .await
+        .expect("Failed to drop the database.");
 }
