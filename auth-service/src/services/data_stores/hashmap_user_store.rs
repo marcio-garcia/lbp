@@ -1,4 +1,4 @@
-use crate::domain::{Email, Password, User, UserStore, UserStoreError};
+use crate::domain::{Email, User, UserStore, UserStoreError};
 use async_trait::async_trait;
 use std::collections::HashMap;
 
@@ -33,24 +33,20 @@ impl UserStore for HashmapUserStore {
         return Err(UserStoreError::UserNotFound);
     }
 
-    async fn validate_user(
-        &self,
-        email: &Email,
-        password: &Password,
-    ) -> Result<(), UserStoreError> {
-        if let Some(user) = self.users.get(email) {
-            if &user.password == password {
-                return Ok(());
-            } else {
-                return Err(UserStoreError::InvalidCredentials);
-            }
-        }
-        return Err(UserStoreError::UserNotFound);
+    async fn validate_user(&self, email: &Email, raw_password: &str) -> Result<(), UserStoreError> {
+        let user: &User = self.users.get(email).ok_or(UserStoreError::UserNotFound)?;
+
+        user.password // updated password verification
+            .verify_raw_password(raw_password)
+            .await
+            .map_err(|_| UserStoreError::InvalidCredentials)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::domain::HashedPassword;
+
     use super::*;
 
     #[tokio::test]
@@ -60,7 +56,7 @@ mod tests {
         let Ok(email) = Email::parse("test@example.com".to_string()) else {
             panic!("Invalid email");
         };
-        let Ok(password) = Password::parse("secretpass".to_string()) else {
+        let Ok(password) = HashedPassword::parse("secretpass".to_string()).await else {
             panic!("Invalid password");
         };
 
@@ -81,7 +77,7 @@ mod tests {
         let Ok(email) = Email::parse("test@example.com".to_string()) else {
             panic!("Invalid email");
         };
-        let Ok(password) = Password::parse("secretpass".to_string()) else {
+        let Ok(password) = HashedPassword::parse("secretpass".to_string()).await else {
             panic!("Invalid password");
         };
 
@@ -108,10 +104,12 @@ mod tests {
     #[tokio::test]
     async fn test_validate_user() {
         let mut store = HashmapUserStore::default();
+        let raw_password = "secretpass";
+        let wrong_raw_password = "wrongpass";
         let Ok(email) = Email::parse("test@example.com".to_string()) else {
             panic!("Invalid email");
         };
-        let Ok(password) = Password::parse("secretpass".to_string()) else {
+        let Ok(password) = HashedPassword::parse(raw_password.to_string()).await else {
             panic!("Invalid password");
         };
 
@@ -122,17 +120,14 @@ mod tests {
         let Ok(email2) = Email::parse("missing@example.com".to_string()) else {
             panic!("Invalid email");
         };
-        let Ok(password2) = Password::parse("wrongpass".to_string()) else {
-            panic!("Invalid password");
-        };
 
-        let result = store.validate_user(&email, &password).await;
+        let result = store.validate_user(&email, raw_password).await;
         assert_eq!(Ok(()), result);
 
-        let result = store.validate_user(&email, &password2).await;
+        let result = store.validate_user(&email, wrong_raw_password).await;
         assert_eq!(Err(UserStoreError::InvalidCredentials), result);
 
-        let result = store.validate_user(&email2, &password).await;
+        let result = store.validate_user(&email2, raw_password).await;
         assert_eq!(Err(UserStoreError::UserNotFound), result);
     }
 }

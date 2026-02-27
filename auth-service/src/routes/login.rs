@@ -1,6 +1,6 @@
 use crate::{
     app_state::AppState,
-    domain::{AuthAPIError, Email, LoginAttemptId, Password, TwoFACode, UserStoreError},
+    domain::{AuthAPIError, Email, LoginAttemptId, TwoFACode, UserStoreError},
     utils::auth::generate_auth_cookie,
 };
 use axum::{extract::State, response::IntoResponse, Json};
@@ -40,13 +40,9 @@ pub async fn login(
         return (CookieJar::new(), Err(AuthAPIError::InvalidCredentials));
     };
 
-    let Ok(password) = Password::parse(request.password) else {
-        return (CookieJar::new(), Err(AuthAPIError::InvalidCredentials));
-    };
-
     let user_store = &state.user_store.read().await;
 
-    if let Err(e) = user_store.validate_user(&email, &password).await {
+    if let Err(e) = user_store.validate_user(&email, &request.password).await {
         match e {
             UserStoreError::InvalidCredentials => {
                 return (CookieJar::new(), Err(AuthAPIError::IncorrectCredentials))
