@@ -26,7 +26,7 @@ async fn should_return_200_if_valid_jwt_cookie() {
         panic!("Invalid token")
     };
     let contains = token_store.contains(&token).await;
-    assert!(contains)
+    assert!(contains.ok().unwrap())
 }
 
 #[tokio::test]

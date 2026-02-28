@@ -63,6 +63,7 @@ async fn protected(jar: CookieJar) -> impl IntoResponse {
     let auth_hostname = env::var("AUTH_SERVICE_HOST_NAME").unwrap_or("0.0.0.0".to_owned());
     let url = format!("http://{}:3000/verify-token", auth_hostname);
 
+    println!("Verifying token");
     let response = match api_client.post(&url).json(&verify_token_body).send().await {
         Ok(response) => response,
         Err(_) => {
@@ -70,13 +71,19 @@ async fn protected(jar: CookieJar) -> impl IntoResponse {
         }
     };
 
+    println!("response: {}", response.status().as_str());
+
     match response.status() {
         reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::BAD_REQUEST => {
+            println!("UNAUTHORIZED");
             StatusCode::UNAUTHORIZED.into_response()
         }
-        reqwest::StatusCode::OK => Json(ProtectedRouteResponse {
-            img_url: "https://i.ibb.co/YP90j68/Light-Live-Bootcamp-Certificate.png".to_owned(),
-        })
+        reqwest::StatusCode::OK => {
+            println!("AUTHORIZED");
+            Json(ProtectedRouteResponse {
+                img_url: "https://i.ibb.co/YP90j68/Light-Live-Bootcamp-Certificate.png".to_owned(),
+            })
+        }
         .into_response(),
         _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }

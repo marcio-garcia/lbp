@@ -26,7 +26,10 @@ pub async fn logout(
     let Ok(token) = Token::parse(token_str) else {
         return (jar, Err(AuthAPIError::InvalidToken));
     };
-    banned_token_store.add_token(token).await;
+
+    if let Err(_) = banned_token_store.add_token(token).await {
+        return (jar, Err(AuthAPIError::UnexpectedError));
+    }
 
     let jar = jar.remove(JWT_COOKIE_NAME);
 

@@ -1,4 +1,4 @@
-use crate::domain::{BannedTokenStore, Token};
+use crate::domain::{BannedTokenStore, BannedTokenStoreError, Token};
 use async_trait::async_trait;
 use std::collections::HashSet;
 
@@ -16,12 +16,13 @@ impl HashsetBannedTokenStore {
 
 #[async_trait]
 impl BannedTokenStore for HashsetBannedTokenStore {
-    async fn add_token(&mut self, token: Token) {
+    async fn add_token(&mut self, token: Token) -> Result<(), BannedTokenStoreError> {
         self.tokens.insert(token);
+        Ok(())
     }
 
-    async fn contains(&self, token: &Token) -> bool {
-        self.tokens.contains(token)
+    async fn contains(&self, token: &Token) -> Result<bool, BannedTokenStoreError> {
+        Ok(self.tokens.contains(token))
     }
 }
 
@@ -50,7 +51,7 @@ mod tests {
         };
 
         let result = store.add_token(token).await;
-        assert_eq!((), result);
+        assert_eq!((), result.ok().unwrap());
     }
 
     #[tokio::test]
@@ -67,9 +68,9 @@ mod tests {
             panic!("could not create token")
         };
         let result = store.add_token(token.clone()).await;
-        assert_eq!((), result);
+        assert_eq!((), result.ok().unwrap());
 
         let exists = store.contains(&token).await;
-        assert!(exists);
+        assert!(exists.ok().unwrap());
     }
 }

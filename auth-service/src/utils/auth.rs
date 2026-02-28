@@ -4,6 +4,7 @@ use axum_extra::extract::cookie::{Cookie, SameSite};
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Validation};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 // This is definitely NOT a good secret. We will update it soon!
 const JWT_SECRET: &str = "secret";
@@ -52,7 +53,11 @@ fn generate_auth_token(email: &Email) -> Result<String, GenerateTokenError> {
 
     let sub = email.as_ref().to_owned();
 
-    let claims = Claims { sub, exp };
+    let claims = Claims {
+        sub,
+        exp,
+        jti: Some(Uuid::new_v4().to_string()),
+    };
 
     create_token(&claims).map_err(GenerateTokenError::TokenError)
 }
@@ -84,7 +89,11 @@ pub fn validate_structure(token: &String) -> Result<Claims, jsonwebtoken::errors
 }
 
 async fn check_banned<T: BannedTokenStore>(token: &Token, banned_tokens: T) -> bool {
-    banned_tokens.contains(token).await
+    if let Ok(val) = banned_tokens.contains(token).await {
+        val
+    } else {
+        false
+    }
 }
 
 // Create JWT auth token by encoding claims using the JWT secret
@@ -100,6 +109,8 @@ fn create_token(claims: &Claims) -> Result<String, jsonwebtoken::errors::Error> 
 pub struct Claims {
     pub sub: String,
     pub exp: usize,
+    #[serde(default)]
+    pub jti: Option<String>,
 }
 
 #[cfg(test)]
@@ -175,9 +186,19 @@ mod tests {
         };
 
         let mut token_store = HashsetBannedTokenStore::new();
-        token_store.add_token(token.clone()).await;
+        if let Err(e) = token_store.add_token(token.clone()).await {
+            panic!("Could not add token to banned list. {:?}", e)
+        }
 
         let result = validate_token(&token.as_str().to_string(), token_store).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_generate_auth_token_is_unique_for_same_user() {
+        let email = Email::parse("test@example.com".to_owned()).unwrap();
+        let token1 = generate_auth_token(&email).unwrap();
+        let token2 = generate_auth_token(&email).unwrap();
+        assert_ne!(token1, token2);
     }
 }

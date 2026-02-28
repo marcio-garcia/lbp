@@ -22,8 +22,13 @@ pub trait UserStore: Send + Sync {
 
 #[async_trait::async_trait]
 pub trait BannedTokenStore: Send + Sync {
-    async fn add_token(&mut self, token: Token);
-    async fn contains(&self, token: &Token) -> bool;
+    async fn add_token(&mut self, token: Token) -> Result<(), BannedTokenStoreError>;
+    async fn contains(&self, token: &Token) -> Result<bool, BannedTokenStoreError>;
+}
+
+#[derive(Debug, PartialEq)]
+pub enum BannedTokenStoreError {
+    UnexpectedError,
 }
 
 // This trait represents the interface all concrete 2FA code stores should implement
