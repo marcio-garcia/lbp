@@ -27,4 +27,13 @@ docker-compose up
 
 # commands
 # docker compose logs -f auth-service
-
+# docker compose up -d redis
+# docker compose stop redis
+#
+#  docker compose up -d db
+#  Check status:
+#  docker compose ps db
+#  Stop PostgreSQL:
+#  docker compose stop db
+#  Remove container/network (full shutdown):
+#  docker compose down
