@@ -1,23 +1,44 @@
-use rand::Rng;
-use uuid::Uuid;
-
 use crate::domain::{Email, Token};
+use color_eyre::eyre::Report;
+use rand::Rng;
+use thiserror::Error;
+use uuid::Uuid;
 
 use super::User;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Error)]
 pub enum UserStoreError {
+    #[error("User already exists")]
     UserAlreadyExists,
+    #[error("User not found")]
     UserNotFound,
+    #[error("Invalid credentials")]
     InvalidCredentials,
-    UnexpectedError,
+    #[error("Unexpected error")]
+    UnexpectedError(#[source] Report),
+}
+
+impl PartialEq for UserStoreError {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::UserAlreadyExists, Self::UserAlreadyExists)
+                | (Self::UserNotFound, Self::UserNotFound)
+                | (Self::InvalidCredentials, Self::InvalidCredentials)
+                | (Self::UnexpectedError(_), Self::UnexpectedError(_))
+        )
+    }
 }
 
 #[async_trait::async_trait]
 pub trait UserStore: Send + Sync {
-    async fn add_user(&mut self, user: User) -> Result<(), UserStoreError>;
-    async fn get_user(&self, email: &Email) -> Result<User, UserStoreError>;
-    async fn validate_user(&self, email: &Email, raw_password: &str) -> Result<(), UserStoreError>;
+    async fn add_user(&mut self, user: User) -> color_eyre::Result<(), UserStoreError>;
+    async fn get_user(&self, email: &Email) -> color_eyre::Result<User, UserStoreError>;
+    async fn validate_user(
+        &self,
+        email: &Email,
+        raw_password: &str,
+    ) -> color_eyre::Result<(), UserStoreError>;
 }
 
 #[async_trait::async_trait]

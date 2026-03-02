@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Email(String);
 
@@ -21,8 +23,9 @@ impl AsRef<str> for Email {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum EmailError {
+    #[error("Invalid email")]
     InvalidEmail,
 }
 

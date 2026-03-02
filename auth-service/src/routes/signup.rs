@@ -6,7 +6,7 @@ use crate::{
     domain::{AuthAPIError, Email, HashedPassword, User, UserStoreError},
 };
 
-#[tracing::instrument(name = "Signup", skip_all, err(Debug))]
+#[tracing::instrument(name = "Signup", skip_all)]
 pub async fn signup(
     State(state): State<AppState>,
     Json(request): Json<SignupRequest>,
@@ -15,9 +15,18 @@ pub async fn signup(
         return Err(AuthAPIError::InvalidCredentials);
     };
 
-    let Ok(password) = HashedPassword::parse(request.password).await else {
-        return Err(AuthAPIError::InvalidCredentials);
-    };
+    let password = HashedPassword::parse(request.password)
+        .await
+        .map_err(|err| {
+            if matches!(
+                err.downcast_ref::<AuthAPIError>(),
+                Some(AuthAPIError::InvalidCredentials)
+            ) {
+                AuthAPIError::InvalidCredentials
+            } else {
+                AuthAPIError::UnexpectedError(err)
+            }
+        })?;
 
     // Create a new `User` instance using data in the `request`
     let user = User {
@@ -27,18 +36,17 @@ pub async fn signup(
     };
 
     let mut user_store = state.user_store.write().await;
-
     let result = user_store.add_user(user).await;
-
     match result {
         Ok(_) => {}
         Err(e) => match e {
             UserStoreError::UserAlreadyExists => return Err(AuthAPIError::UserAlreadyExists),
-            UserStoreError::UnexpectedError => return Err(AuthAPIError::UnexpectedError),
+            UserStoreError::UnexpectedError(err) => {
+                return Err(AuthAPIError::UnexpectedError(err.into()))
+            }
             _ => {}
         },
     }
-
     let response = Json(SignupResponse {
         message: "User created successfully!".to_string(),
     });

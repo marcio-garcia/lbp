@@ -11,29 +11,27 @@ impl HashmapUserStore {}
 
 #[async_trait]
 impl UserStore for HashmapUserStore {
-    async fn add_user(&mut self, user: User) -> Result<(), UserStoreError> {
-        let result = self.get_user(&user.email).await;
-        match result {
-            Ok(_) => return Err(UserStoreError::UserAlreadyExists),
-            Err(e) => {
-                if e == UserStoreError::UserNotFound {
-                    self.users.insert(user.email.clone(), user);
-                    return Ok(());
-                } else {
-                    return Err(e);
-                }
-            }
+    async fn add_user(&mut self, user: User) -> color_eyre::Result<(), UserStoreError> {
+        if self.users.contains_key(&user.email) {
+            return Err(UserStoreError::UserAlreadyExists);
         }
+
+        self.users.insert(user.email.clone(), user);
+        Ok(())
     }
 
-    async fn get_user(&self, email: &Email) -> Result<User, UserStoreError> {
+    async fn get_user(&self, email: &Email) -> color_eyre::Result<User, UserStoreError> {
         if let Some(user) = self.users.get(email) {
             return Ok(user.clone());
         }
         return Err(UserStoreError::UserNotFound);
     }
 
-    async fn validate_user(&self, email: &Email, raw_password: &str) -> Result<(), UserStoreError> {
+    async fn validate_user(
+        &self,
+        email: &Email,
+        raw_password: &str,
+    ) -> color_eyre::Result<(), UserStoreError> {
         let user: &User = self.users.get(email).ok_or(UserStoreError::UserNotFound)?;
 
         user.password // updated password verification
@@ -63,11 +61,11 @@ mod tests {
         let user = User::new(email.clone(), password.clone(), false);
 
         let result = store.add_user(user).await;
-        assert_eq!(Ok(()), result);
+        assert!(result.is_ok());
 
         let duplicate = User::new(email, password, false);
         let result = store.add_user(duplicate).await;
-        assert_eq!(Err(UserStoreError::UserAlreadyExists), result);
+        assert_eq!(result.err().unwrap(), UserStoreError::UserAlreadyExists);
     }
 
     #[tokio::test]
@@ -84,7 +82,7 @@ mod tests {
         let user = User::new(email.clone(), password.clone(), true);
 
         let result = store.add_user(user).await;
-        assert_eq!(Ok(()), result);
+        assert!(result.is_ok());
 
         let result = store.get_user(&email).await;
         assert!(result.is_ok());
@@ -98,7 +96,7 @@ mod tests {
         };
 
         let result = store.get_user(&email).await;
-        assert_eq!(Err(UserStoreError::UserNotFound), result);
+        assert_eq!(result.err().unwrap(), UserStoreError::UserNotFound);
     }
 
     #[tokio::test]
@@ -115,19 +113,19 @@ mod tests {
 
         let user = User::new(email.clone(), password.clone(), false);
         let result = store.add_user(user).await;
-        assert_eq!(Ok(()), result);
+        assert!(result.is_ok());
 
         let Ok(email2) = Email::parse("missing@example.com".to_string()) else {
             panic!("Invalid email");
         };
 
         let result = store.validate_user(&email, raw_password).await;
-        assert_eq!(Ok(()), result);
+        assert!(result.is_ok());
 
-        let result = store.validate_user(&email, wrong_raw_password).await;
-        assert_eq!(Err(UserStoreError::InvalidCredentials), result);
+        let valid1 = store.validate_user(&email, wrong_raw_password).await;
+        assert_eq!(valid1.err().unwrap(), UserStoreError::InvalidCredentials);
 
-        let result = store.validate_user(&email2, raw_password).await;
-        assert_eq!(Err(UserStoreError::UserNotFound), result);
+        let valid2 = store.validate_user(&email2, raw_password).await;
+        assert_eq!(valid2.err().unwrap(), UserStoreError::UserNotFound);
     }
 }

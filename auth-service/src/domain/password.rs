@@ -2,21 +2,21 @@ use argon2::{
     password_hash::{rand_core::OsRng, SaltString},
     Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version,
 };
-use std::error::Error;
+use color_eyre::eyre::eyre;
+use thiserror::Error;
+
+use crate::domain::AuthAPIError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HashedPassword(String);
 
 impl HashedPassword {
-    pub async fn parse(s: String) -> Result<Self, String> {
+    pub async fn parse(s: String) -> color_eyre::Result<Self> {
         if s.len() >= 8 {
-            let pass = compute_password_hash(&s).await;
-            match pass {
-                Ok(h) => return Ok(Self(h)),
-                Err(e) => return Err(e.to_string()),
-            }
+            let pass = compute_password_hash(&s).await?;
+            Ok(Self(pass))
         } else {
-            return Err("Invalid password".to_string());
+            return Err(eyre!(AuthAPIError::InvalidCredentials));
         }
     }
 
@@ -29,10 +29,7 @@ impl HashedPassword {
     }
 
     #[tracing::instrument(name = "Verify raw password", skip_all)]
-    pub async fn verify_raw_password(
-        &self,
-        password_candidate: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn verify_raw_password(&self, password_candidate: &str) -> color_eyre::Result<()> {
         // This line retrieves the current span from the tracing context.
         // The span represents the execution context for the compute_password_hash function.
         let current_span: tracing::Span = tracing::Span::current();
@@ -40,20 +37,18 @@ impl HashedPassword {
         let password_hash = self.as_ref().to_owned();
         let password_candidate = password_candidate.to_owned();
 
-        let res =
-            tokio::task::spawn_blocking(move || -> Result<(), Box<dyn Error + Send + Sync>> {
-                // This code block ensures that the operations within the closure are executed within the context of the current span.
-                // This is especially useful for tracing operations that are performed in a different thread or task, such as within tokio::task::spawn_blocking.
-                current_span.in_scope(|| {
-                    let expected_password_hash = PasswordHash::new(&password_hash)
-                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+        let res = tokio::task::spawn_blocking(move || -> color_eyre::Result<()> {
+            // This code block ensures that the operations within the closure are executed within the context of the current span.
+            // This is especially useful for tracing operations that are performed in a different thread or task, such as within tokio::task::spawn_blocking.
+            current_span.in_scope(|| {
+                let expected_password_hash = PasswordHash::new(&password_hash)?;
 
-                    Argon2::default()
-                        .verify_password(password_candidate.as_bytes(), &expected_password_hash)
-                        .map_err(|e| e.into())
-                })
+                Argon2::default()
+                    .verify_password(password_candidate.as_bytes(), &expected_password_hash)
+                    .map_err(|e| e.into())
             })
-            .await?;
+        })
+        .await?;
         res
     }
 
@@ -73,38 +68,38 @@ impl AsRef<str> for HashedPassword {
 // other async tasks, perform hashing on a
 // separate thread pool using tokio::task::spawn_blocking.
 #[tracing::instrument(name = "Computing password hash", skip_all)]
-async fn compute_password_hash(password: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+async fn compute_password_hash(password: &str) -> color_eyre::Result<String> {
     // This line retrieves the current span from the tracing context.
     // The span represents the execution context for the compute_password_hash function.
     let current_span: tracing::Span = tracing::Span::current();
 
     let password = password.to_owned();
 
-    let result =
-        tokio::task::spawn_blocking(move || -> Result<String, Box<dyn Error + Send + Sync>> {
-            // This code block ensures that the operations within the closure are executed within the context of the current span.
-            // This is especially useful for tracing operations that are performed in a different thread or task, such as within tokio::task::spawn_blocking.
-            current_span.in_scope(|| -> Result<String, Box<dyn Error + Send + Sync>> {
-                // New!
-                let salt: SaltString = SaltString::generate(&mut OsRng);
-                let password_hash = Argon2::new(
-                    Algorithm::Argon2id,
-                    Version::V0x13,
-                    Params::new(15000, 2, 1, None)?,
-                )
-                .hash_password(password.as_bytes(), &salt)?
-                .to_string();
+    let result = tokio::task::spawn_blocking(move || -> color_eyre::Result<String> {
+        // This code block ensures that the operations within the closure are executed within the context of the current span.
+        // This is especially useful for tracing operations that are performed in a different thread or task, such as within tokio::task::spawn_blocking.
+        current_span.in_scope(|| -> color_eyre::Result<String> {
+            // New!
+            let salt: SaltString = SaltString::generate(&mut OsRng);
+            let password_hash = Argon2::new(
+                Algorithm::Argon2id,
+                Version::V0x13,
+                Params::new(15000, 2, 1, None)?,
+            )
+            .hash_password(password.as_bytes(), &salt)?
+            .to_string();
 
-                Ok(password_hash)
-            })
+            Ok(password_hash)
         })
-        .await;
+    })
+    .await;
 
     result?
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum PasswordError {
+    #[error("Invalid password")]
     InvalidPassword,
 }
 
