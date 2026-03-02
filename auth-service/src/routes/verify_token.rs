@@ -6,6 +6,7 @@ use axum::{extract::State, response::IntoResponse, Json};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
+#[tracing::instrument(name = "verify_token", skip_all)]
 pub async fn verify_token(
     State(state): State<AppState>,
     Json(request): Json<VerifyTokenRequest>,

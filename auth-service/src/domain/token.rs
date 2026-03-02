@@ -1,17 +1,19 @@
-use crate::utils::auth::validate_structure;
+use color_eyre::eyre::eyre;
+
+use crate::{domain::AuthAPIError, utils::auth::validate_structure};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Token(String);
 
 impl Token {
-    pub fn parse(token: String) -> Result<Self, TokenError> {
+    pub fn parse(token: String) -> color_eyre::Result<Self> {
         if !token.is_empty() {
             let Ok(_) = validate_structure(&token) else {
-                return Err(TokenError::InvalidToken);
+                return Err(eyre!(AuthAPIError::InvalidToken));
             };
             Ok(Self(token))
         } else {
-            Err(TokenError::InvalidToken)
+            Err(eyre!(AuthAPIError::InvalidToken))
         }
     }
 
@@ -49,6 +51,10 @@ mod tests {
     async fn parse_missing_at_symbol_fails() {
         let token = "invalid".to_string();
         let result = Token::parse(token);
-        assert_eq!(result, Err(TokenError::InvalidToken));
+        let err = result.expect_err("expected invalid token");
+        let actual = err
+            .downcast_ref::<AuthAPIError>()
+            .expect("expected AuthAPIError");
+        assert!(matches!(actual, AuthAPIError::InvalidToken));
     }
 }

@@ -1,14 +1,17 @@
+use color_eyre::eyre::eyre;
 use thiserror::Error;
+
+use crate::domain::AuthAPIError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Email(String);
 
 impl Email {
-    pub fn parse(email: String) -> Result<Self, EmailError> {
+    pub fn parse(email: String) -> color_eyre::Result<Self> {
         if !email.is_empty() && email.contains("@") {
             Ok(Self(email))
         } else {
-            Err(EmailError::InvalidEmail)
+            Err(eyre!(AuthAPIError::InvalidCredentials))
         }
     }
 
@@ -39,7 +42,7 @@ mod tests {
 
         let result = Email::parse(email.clone());
 
-        assert_eq!(result, Ok(Email(email)));
+        assert_eq!(result.ok().unwrap(), Email(email));
     }
 
     #[test]
@@ -47,8 +50,11 @@ mod tests {
         let email = "userexample.com".to_string();
 
         let result = Email::parse(email);
-
-        assert_eq!(result, Err(EmailError::InvalidEmail));
+        let err = result.expect_err("expected invalid credentials");
+        let actual = err
+            .downcast_ref::<AuthAPIError>()
+            .expect("expected AuthAPIError");
+        assert!(matches!(actual, AuthAPIError::InvalidCredentials));
     }
 
     #[test]
@@ -56,8 +62,11 @@ mod tests {
         let email = "".to_string();
 
         let result = Email::parse(email);
-
-        assert!(matches!(result, Err(EmailError::InvalidEmail)));
+        let err = result.expect_err("expected invalid credentials");
+        let actual = err
+            .downcast_ref::<AuthAPIError>()
+            .expect("expected AuthAPIError");
+        assert!(matches!(actual, AuthAPIError::InvalidCredentials));
     }
 
     #[test]

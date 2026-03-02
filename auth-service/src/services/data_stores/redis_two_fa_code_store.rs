@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use color_eyre::eyre::Context;
 use redis::{Commands, Connection, RedisError};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -21,6 +22,7 @@ impl RedisTwoFACodeStore {
 
 #[async_trait::async_trait]
 impl TwoFACodeStore for RedisTwoFACodeStore {
+    #[tracing::instrument(name = "add_code", skip_all)]
     async fn add_code(
         &mut self,
         email: Email,
@@ -28,38 +30,40 @@ impl TwoFACodeStore for RedisTwoFACodeStore {
         code: TwoFACode,
     ) -> Result<(), TwoFACodeStoreError> {
         let key = get_key(&email);
-        let fa = TwoFATuple(
+        let data = TwoFATuple(
             login_attempt_id.as_ref().to_string(),
             code.as_ref().to_string(),
         );
 
-        let Ok(json_str) = serde_json::to_string(&fa) else {
-            return Err(TwoFACodeStoreError::UnexpectedError);
-        };
+        let serialized_data = serde_json::to_string(&data)
+            .wrap_err("failed to serialize 2FA tuple") // New!
+            .map_err(TwoFACodeStoreError::UnexpectedError)?;
 
-        let mut c = self.conn.write().await;
+        let mut connection = self.conn.write().await;
         let sec = match u64::try_from(TEN_MINUTES_IN_SECONDS) {
             Ok(v) => v,
-            Err(_) => return Err(TwoFACodeStoreError::UnexpectedError),
+            Err(e) => return Err(TwoFACodeStoreError::UnexpectedError(e.into())),
         };
 
-        let result: Result<(), RedisError> = c.set_ex(key, json_str, sec);
-        match result {
-            Ok(_) => Ok(()),
-            Err(_) => Err(TwoFACodeStoreError::UnexpectedError),
-        }
+        let _: () = connection
+            .set_ex(key, serialized_data, sec)
+            .wrap_err("failed to set 2FA code in Redis")
+            .map_err(TwoFACodeStoreError::UnexpectedError)?;
+        Ok(())
     }
 
+    #[tracing::instrument(name = "remove_code", skip_all)]
     async fn remove_code(&mut self, email: &Email) -> Result<(), TwoFACodeStoreError> {
         let key = get_key(&email);
-        let mut c = self.conn.write().await;
-        let result: Result<(), RedisError> = c.del(key);
-        match result {
-            Ok(_) => Ok(()),
-            Err(_) => Err(TwoFACodeStoreError::UnexpectedError),
-        }
+        let mut connection = self.conn.write().await;
+        let _: () = connection
+            .del(key)
+            .wrap_err("failed to delete 2FA code from Redis")
+            .map_err(TwoFACodeStoreError::UnexpectedError)?;
+        Ok(())
     }
 
+    #[tracing::instrument(name = "get_code", skip_all)]
     async fn get_code(
         &self,
         email: &Email,
@@ -69,18 +73,17 @@ impl TwoFACodeStore for RedisTwoFACodeStore {
         let result: Result<String, RedisError> = c.get(key);
         match result {
             Ok(json_str) => {
-                let dec: Result<TwoFATuple, serde_json::Error> = serde_json::from_str(&json_str);
-                let two_fa_tuple = match dec {
-                    Ok(t) => t,
-                    Err(_) => return Err(TwoFACodeStoreError::UnexpectedError),
-                };
-                let login_attempt_id = LoginAttemptId::parse(two_fa_tuple.0)
-                    .map_err(|_| TwoFACodeStoreError::UnexpectedError)?;
-                let two_fa_code = TwoFACode::parse(two_fa_tuple.1)
-                    .map_err(|_| TwoFACodeStoreError::UnexpectedError)?;
+                let data: TwoFATuple = serde_json::from_str(&json_str)
+                    .wrap_err("failed to deserialize 2FA tuple")
+                    .map_err(TwoFACodeStoreError::UnexpectedError)?;
+
+                let login_attempt_id =
+                    LoginAttemptId::parse(data.0).map_err(TwoFACodeStoreError::UnexpectedError)?;
+                let two_fa_code =
+                    TwoFACode::parse(data.1).map_err(TwoFACodeStoreError::UnexpectedError)?;
                 Ok((login_attempt_id, two_fa_code))
             }
-            Err(_) => Err(TwoFACodeStoreError::UnexpectedError),
+            Err(_) => Err(TwoFACodeStoreError::LoginAttemptIdNotFound),
         }
     }
 }
@@ -163,7 +166,7 @@ mod tests {
         assert_eq!(Ok(()), remove_result);
 
         let fetched = store.get_code(&email).await;
-        assert_eq!(Err(TwoFACodeStoreError::UnexpectedError), fetched);
+        assert!(matches!(fetched, Err(TwoFACodeStoreError::UnexpectedError(_))));
     }
 
     #[tokio::test]
@@ -181,6 +184,9 @@ mod tests {
         let email = test_email("missing");
 
         let result = store.get_code(&email).await;
-        assert_eq!(Err(TwoFACodeStoreError::UnexpectedError), result);
+        assert!(matches!(
+            result,
+            Err(TwoFACodeStoreError::UnexpectedError(_))
+        ));
     }
 }

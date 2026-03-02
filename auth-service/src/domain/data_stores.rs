@@ -1,5 +1,5 @@
 use crate::domain::{Email, Token};
-use color_eyre::eyre::Report;
+use color_eyre::eyre::{eyre, Context, Report};
 use rand::Rng;
 use thiserror::Error;
 use uuid::Uuid;
@@ -47,9 +47,10 @@ pub trait BannedTokenStore: Send + Sync {
     async fn contains(&self, token: &Token) -> Result<bool, BannedTokenStoreError>;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Error)]
 pub enum BannedTokenStoreError {
-    UnexpectedError,
+    #[error("Unexpected error")]
+    UnexpectedError(#[source] Report),
 }
 
 // This trait represents the interface all concrete 2FA code stores should implement
@@ -68,22 +69,32 @@ pub trait TwoFACodeStore {
     ) -> Result<(LoginAttemptId, TwoFACode), TwoFACodeStoreError>;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Error)]
 pub enum TwoFACodeStoreError {
+    #[error("Login Attempt ID not found")]
     LoginAttemptIdNotFound,
-    UnexpectedError,
+    #[error("Unexpected error")]
+    UnexpectedError(#[source] Report),
+}
+
+// New!
+impl PartialEq for TwoFACodeStoreError {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::LoginAttemptIdNotFound, Self::LoginAttemptIdNotFound)
+                | (Self::UnexpectedError(_), Self::UnexpectedError(_))
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoginAttemptId(String);
 
 impl LoginAttemptId {
-    pub fn parse(id: String) -> Result<Self, String> {
-        let Ok(result) = Uuid::parse_str(&id) else {
-            return Err("Invalid id".to_string());
-        };
-
-        Ok(LoginAttemptId(result.to_string()))
+    pub fn parse(id: String) -> color_eyre::Result<Self> {
+        let parsed_id = Uuid::parse_str(&id).wrap_err("Invalid login attempt id")?;
+        Ok(LoginAttemptId(parsed_id.to_string()))
     }
 }
 
@@ -104,17 +115,14 @@ impl AsRef<str> for LoginAttemptId {
 pub struct TwoFACode(String);
 
 impl TwoFACode {
-    pub fn parse(code: String) -> Result<Self, String> {
+    pub fn parse(code: String) -> color_eyre::Result<Self> {
+        let code_as_u32 = code.parse::<u32>().wrap_err("Invalid 2FA code")?;
         // Ensure `code` is a valid 6-digit code
-        if code.len() == 6 {
-            let n: Result<i32, _> = code.parse();
-            if let Ok(val) = n {
-                if val > 0 {
-                    return Ok(TwoFACode(code));
-                }
-            }
+        if (100_000..=999_999).contains(&code_as_u32) {
+            Ok(Self(code))
+        } else {
+            Err(eyre!("Invalid 2FA code")) // Updated!
         }
-        return Err("Invalid code".to_string());
     }
 }
 

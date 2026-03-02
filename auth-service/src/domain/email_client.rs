@@ -8,5 +8,5 @@ pub trait EmailClient {
         recipient: &Email,
         subject: &str,
         content: &str,
-    ) -> Result<(), String>;
+    ) -> color_eyre::Result<()>;
 }
