@@ -4,11 +4,11 @@ use axum_extra::extract::cookie::{Cookie, SameSite};
 use chrono::Utc;
 use color_eyre::eyre::{eyre, Context, ContextCompat};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Validation};
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-// This is definitely NOT a good secret. We will update it soon!
-const JWT_SECRET: &str = "secret";
+use super::constants;
 
 // Create cookie with a new JWT auth token
 #[tracing::instrument(name = "generate_auth_cookie", skip_all)]
@@ -55,7 +55,7 @@ fn generate_auth_token(email: &Email) -> color_eyre::Result<String> {
         exp
     ))?;
 
-    let sub = email.as_ref().to_owned();
+    let sub = email.as_ref().expose_secret().to_owned();
 
     let claims = Claims {
         sub,
@@ -85,7 +85,7 @@ pub async fn validate_token<T: BannedTokenStore>(
 pub fn validate_structure(token: &String) -> color_eyre::Result<Claims> {
     let c = decode::<Claims>(
         token,
-        &DecodingKey::from_secret(JWT_SECRET.as_bytes()),
+        &DecodingKey::from_secret(constants::JWT_SECRET.expose_secret().as_bytes()),
         &Validation::default(),
     )?;
 
@@ -94,7 +94,8 @@ pub fn validate_structure(token: &String) -> color_eyre::Result<Claims> {
 
 #[tracing::instrument(name = "check_banned", skip_all)]
 async fn check_banned<T: BannedTokenStore>(token: &Token, banned_tokens: T) -> bool {
-    if let Ok(val) = banned_tokens.contains(token).await {
+    let token = SecretString::new(token.as_str().to_owned().into_boxed_str());
+    if let Ok(val) = banned_tokens.contains_token(&token).await {
         val
     } else {
         false
@@ -107,7 +108,7 @@ fn create_token(claims: &Claims) -> color_eyre::Result<String> {
     encode(
         &jsonwebtoken::Header::default(),
         &claims,
-        &EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+        &EncodingKey::from_secret(constants::JWT_SECRET.expose_secret().as_bytes()),
     )
     .wrap_err("failed to create token")
 }
@@ -128,7 +129,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_auth_cookie() {
-        let email = Email::parse("test@example.com".to_owned()).unwrap();
+        let email = Email::parse("test@example.com".to_owned().into()).unwrap();
         let cookie = generate_auth_cookie(&email).unwrap();
         assert_eq!(cookie.name(), JWT_COOKIE_NAME);
         assert_eq!(cookie.value().split('.').count(), 3);
@@ -150,14 +151,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_auth_token() {
-        let email = Email::parse("test@example.com".to_owned()).unwrap();
+        let email = Email::parse("test@example.com".to_owned().into()).unwrap();
         let result = generate_auth_token(&email).unwrap();
         assert_eq!(result.split('.').count(), 3);
     }
 
     #[tokio::test]
     async fn test_validate_token_with_valid_token() {
-        let email = Email::parse("test@example.com".to_owned()).unwrap();
+        let email = Email::parse("test@example.com".to_owned().into()).unwrap();
         let token_str = generate_auth_token(&email).unwrap();
         let Ok(token) = Token::parse(token_str) else {
             panic!("Invalid token")
@@ -186,14 +187,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_validate_token_with_banned_token() {
-        let email = Email::parse("test@example.com".to_owned()).unwrap();
+        let email = Email::parse("test@example.com".to_owned().into()).unwrap();
         let token_str = generate_auth_token(&email).unwrap();
         let Ok(token) = Token::parse(token_str) else {
             panic!("Invalid token")
         };
 
         let mut token_store = HashsetBannedTokenStore::new();
-        if let Err(e) = token_store.add_token(token.clone()).await {
+        let token_secret = SecretString::new(token.as_str().to_owned().into_boxed_str());
+        if let Err(e) = token_store.add_token(token_secret).await {
             panic!("Could not add token to banned list. {:?}", e)
         }
 
@@ -203,7 +205,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_auth_token_is_unique_for_same_user() {
-        let email = Email::parse("test@example.com".to_owned()).unwrap();
+        let email = Email::parse("test@example.com".to_owned().into()).unwrap();
         let token1 = generate_auth_token(&email).unwrap();
         let token2 = generate_auth_token(&email).unwrap();
         assert_ne!(token1, token2);

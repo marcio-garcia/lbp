@@ -6,12 +6,13 @@ use crate::{
 use axum::{extract::State, response::IntoResponse, Json};
 use axum_extra::extract::CookieJar;
 use reqwest::StatusCode;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
-    pub email: String,
-    pub password: String,
+    pub email: SecretString,
+    pub password: SecretString,
 }
 
 // The login route can return 2 possible success responses.
@@ -99,7 +100,11 @@ async fn handle_2fa(
 
     let email_client = state.email_client.read().await;
     if let Err(e) = email_client
-        .send_email(email, "Verification code", two_fa_code.as_ref())
+        .send_email(
+            email,
+            "Verification code",
+            two_fa_code.as_ref().expose_secret(),
+        )
         .await
     {
         return (updated_jar, Err(AuthAPIError::UnexpectedError(e)));
@@ -107,7 +112,7 @@ async fn handle_2fa(
 
     let response = Json(LoginResponse::TwoFactorAuth(TwoFactorAuthResponse {
         message: "2FA required".to_owned(),
-        login_attempt_id: login_attempt_id.as_ref().to_owned(),
+        login_attempt_id: login_attempt_id.as_ref().expose_secret().to_owned(),
     }));
 
     (updated_jar, Ok((StatusCode::PARTIAL_CONTENT, response)))

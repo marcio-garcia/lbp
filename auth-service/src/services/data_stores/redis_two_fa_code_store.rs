@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use color_eyre::eyre::Context;
 use redis::{Commands, Connection, RedisError};
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -31,8 +32,8 @@ impl TwoFACodeStore for RedisTwoFACodeStore {
     ) -> Result<(), TwoFACodeStoreError> {
         let key = get_key(&email);
         let data = TwoFATuple(
-            login_attempt_id.as_ref().to_string(),
-            code.as_ref().to_string(),
+            login_attempt_id.as_ref().expose_secret().to_string(),
+            code.as_ref().expose_secret().to_string(),
         );
 
         let serialized_data = serde_json::to_string(&data)
@@ -78,9 +79,9 @@ impl TwoFACodeStore for RedisTwoFACodeStore {
                     .map_err(TwoFACodeStoreError::UnexpectedError)?;
 
                 let login_attempt_id =
-                    LoginAttemptId::parse(data.0).map_err(TwoFACodeStoreError::UnexpectedError)?;
+                    LoginAttemptId::parse(data.0.into()).map_err(TwoFACodeStoreError::UnexpectedError)?;
                 let two_fa_code =
-                    TwoFACode::parse(data.1).map_err(TwoFACodeStoreError::UnexpectedError)?;
+                    TwoFACode::parse(data.1.into()).map_err(TwoFACodeStoreError::UnexpectedError)?;
                 Ok((login_attempt_id, two_fa_code))
             }
             Err(_) => Err(TwoFACodeStoreError::LoginAttemptIdNotFound),
@@ -95,7 +96,7 @@ const TEN_MINUTES_IN_SECONDS: u64 = 600;
 const TWO_FA_CODE_PREFIX: &str = "two_fa_code:";
 
 fn get_key(email: &Email) -> String {
-    format!("{}{}", TWO_FA_CODE_PREFIX, email.as_ref())
+    format!("{}{}", TWO_FA_CODE_PREFIX, email.as_ref().expose_secret())
 }
 
 #[cfg(test)]
@@ -113,7 +114,7 @@ mod tests {
     }
 
     fn test_email(prefix: &str) -> Email {
-        Email::parse(format!("{prefix}.{}@example.com", Uuid::new_v4())).expect("valid email")
+        Email::parse(format!("{prefix}.{}@example.com", Uuid::new_v4()).into()).expect("valid email")
     }
 
     #[tokio::test]
@@ -166,7 +167,7 @@ mod tests {
         assert_eq!(Ok(()), remove_result);
 
         let fetched = store.get_code(&email).await;
-        assert!(matches!(fetched, Err(TwoFACodeStoreError::UnexpectedError(_))));
+        assert_eq!(Err(TwoFACodeStoreError::LoginAttemptIdNotFound), fetched);
     }
 
     #[tokio::test]
@@ -184,9 +185,6 @@ mod tests {
         let email = test_email("missing");
 
         let result = store.get_code(&email).await;
-        assert!(matches!(
-            result,
-            Err(TwoFACodeStoreError::UnexpectedError(_))
-        ));
+        assert_eq!(Err(TwoFACodeStoreError::LoginAttemptIdNotFound), result);
     }
 }

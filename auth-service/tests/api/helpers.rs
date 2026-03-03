@@ -7,6 +7,7 @@ use auth_service::utils::constants::DATABASE_URL;
 use auth_service::{app_state::AppState, utils::constants::test, Application};
 use reqwest::cookie::Jar;
 use reqwest::Response;
+use secrecy::ExposeSecret;
 use serde::Serialize;
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
@@ -242,7 +243,7 @@ fn test_database_url() -> String {
     env::var("TEST_DATABASE_URL")
         .ok()
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DATABASE_URL.to_owned())
+        .unwrap_or_else(|| DATABASE_URL.expose_secret().to_owned())
 }
 
 #[allow(dead_code)]
@@ -303,7 +304,7 @@ async fn clone_database_from_template(db_conn_string: &str, template_db: &str, d
 
 #[allow(dead_code)]
 async fn delete_database(db_name: &str) {
-    let postgresql_conn_url: String = DATABASE_URL.to_owned();
+    let postgresql_conn_url: String = DATABASE_URL.expose_secret().to_owned();
 
     let connection_options = PgConnectOptions::from_str(&postgresql_conn_url)
         .expect("Failed to parse PostgreSQL connection string");

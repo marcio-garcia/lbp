@@ -46,15 +46,15 @@ mod tests {
     use uuid::Uuid;
 
     fn email(value: &str) -> Email {
-        Email::parse(value.to_string()).expect("valid email")
+        Email::parse(value.to_string().into()).expect("valid email")
     }
 
     fn login_attempt_id(value: &str) -> LoginAttemptId {
-        LoginAttemptId::parse(value.to_string()).expect("valid login attempt id")
+        LoginAttemptId::parse(value.to_string().into()).expect("valid login attempt id")
     }
 
     fn two_fa_code(value: &str) -> TwoFACode {
-        TwoFACode::parse(value.to_string()).expect("valid 2FA code")
+        TwoFACode::parse(value.to_string().into()).expect("valid 2FA code")
     }
 
     #[tokio::test]

@@ -23,7 +23,7 @@ async fn should_return_422_if_malformed_input() {
 async fn should_return_200_valid_token() {
     let app = TestApp::new().await;
     let email_str = get_random_email();
-    let Ok(email) = Email::parse(email_str) else {
+    let Ok(email) = Email::parse(email_str.into()) else {
         panic!("invalid email");
     };
     let Ok(token) = generate_auth_cookie(&email) else {

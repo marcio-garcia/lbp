@@ -41,7 +41,7 @@ mod tests {
 
     #[tokio::test]
     async fn parse_valid_token_succeeds() {
-        let email = Email::parse("test@example.com".to_owned()).unwrap();
+        let email = Email::parse("test@example.com".to_owned().into()).unwrap();
         let token = generate_auth_cookie(&email).unwrap().value().to_string();
         let result = Token::parse(token);
         assert!(result.is_ok());

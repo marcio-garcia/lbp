@@ -1,9 +1,10 @@
-use sqlx::PgPool;
-
 use crate::domain::{
     data_stores::{UserStore, UserStoreError},
     Email, HashedPassword, User,
 };
+use color_eyre::eyre::eyre;
+use secrecy::{ExposeSecret, SecretString};
+use sqlx::PgPool;
 
 pub struct PostgresUserStore {
     pool: PgPool,
@@ -21,7 +22,7 @@ impl UserStore for PostgresUserStore {
     async fn add_user(&mut self, user: User) -> color_eyre::Result<(), UserStoreError> {
         let exists =
             sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)")
-                .bind(user.email.as_ref())
+                .bind(user.email.as_ref().expose_secret())
                 .fetch_one(&self.pool)
                 .await
                 .map_err(|e| UserStoreError::UnexpectedError(e.into()))?;
@@ -31,8 +32,8 @@ impl UserStore for PostgresUserStore {
         }
 
         sqlx::query("INSERT INTO users (email, password_hash, requires_2fa) VALUES ($1, $2, $3)")
-            .bind(user.email.as_ref())
-            .bind(user.password.as_ref())
+            .bind(user.email.as_ref().expose_secret())
+            .bind(user.password.as_ref().expose_secret())
             .bind(user.requires_2fa)
             .execute(&self.pool)
             .await
@@ -46,7 +47,7 @@ impl UserStore for PostgresUserStore {
         let row = sqlx::query_as::<_, (String, String, bool)>(
             "SELECT email, password_hash, requires_2fa FROM users WHERE email = $1",
         )
-        .bind(email.as_ref())
+        .bind(email.as_ref().expose_secret())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| UserStoreError::UnexpectedError(e.into()))?;
@@ -56,9 +57,10 @@ impl UserStore for PostgresUserStore {
         };
 
         let email =
-            Email::parse(email_str).map_err(|e| UserStoreError::UnexpectedError(e.into()))?;
-        let password = HashedPassword::parse_password_hash(password_hash)
-            .map_err(|_| UserStoreError::InvalidCredentials)?;
+            Email::parse(email_str.into()).map_err(|e| UserStoreError::UnexpectedError(e.into()))?;
+        let secret_str = SecretString::new(password_hash.to_owned().into_boxed_str());
+        let password = HashedPassword::parse_password_hash(secret_str)
+            .map_err(|e| UserStoreError::UnexpectedError(eyre!(e)))?;
 
         Ok(User::new(email, password, requires_2fa))
     }
@@ -67,11 +69,11 @@ impl UserStore for PostgresUserStore {
     async fn validate_user(
         &self,
         email: &Email,
-        raw_password: &str,
+        raw_password: &SecretString,
     ) -> color_eyre::Result<(), UserStoreError> {
         let password_hash =
             sqlx::query_scalar::<_, String>("SELECT password_hash FROM users WHERE email = $1")
-                .bind(email.as_ref())
+                .bind(email.as_ref().expose_secret())
                 .fetch_optional(&self.pool)
                 .await
                 .map_err(|e| UserStoreError::UnexpectedError(e.into()))?;
@@ -80,7 +82,9 @@ impl UserStore for PostgresUserStore {
             return Err(UserStoreError::UserNotFound);
         };
 
-        let hashed_password = HashedPassword::parse_password_hash(password_hash)
+        let secret_str = SecretString::new(password_hash.to_owned().into_boxed_str());
+
+        let hashed_password = HashedPassword::parse_password_hash(secret_str)
             .map_err(|_| UserStoreError::InvalidCredentials)?;
 
         hashed_password

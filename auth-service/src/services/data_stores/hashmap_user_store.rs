@@ -1,5 +1,6 @@
 use crate::domain::{Email, User, UserStore, UserStoreError};
 use async_trait::async_trait;
+use secrecy::SecretString;
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -30,10 +31,9 @@ impl UserStore for HashmapUserStore {
     async fn validate_user(
         &self,
         email: &Email,
-        raw_password: &str,
+        raw_password: &SecretString,
     ) -> color_eyre::Result<(), UserStoreError> {
         let user: &User = self.users.get(email).ok_or(UserStoreError::UserNotFound)?;
-
         user.password // updated password verification
             .verify_raw_password(raw_password)
             .await
@@ -43,6 +43,8 @@ impl UserStore for HashmapUserStore {
 
 #[cfg(test)]
 mod tests {
+    use secrecy::SecretString;
+
     use crate::domain::HashedPassword;
 
     use super::*;
@@ -51,10 +53,12 @@ mod tests {
     async fn test_add_user() {
         let mut store = HashmapUserStore::default();
 
-        let Ok(email) = Email::parse("test@example.com".to_string()) else {
+        let Ok(email) = Email::parse("test@example.com".to_string().into()) else {
             panic!("Invalid email");
         };
-        let Ok(password) = HashedPassword::parse("secretpass".to_string()).await else {
+        let raw_password = "secretpass";
+        let secret_str = SecretString::new(raw_password.to_owned().into_boxed_str());
+        let Ok(password) = HashedPassword::parse(secret_str).await else {
             panic!("Invalid password");
         };
 
@@ -72,10 +76,12 @@ mod tests {
     async fn test_get_user() {
         let mut store = HashmapUserStore::default();
 
-        let Ok(email) = Email::parse("test@example.com".to_string()) else {
+        let Ok(email) = Email::parse("test@example.com".to_string().into()) else {
             panic!("Invalid email");
         };
-        let Ok(password) = HashedPassword::parse("secretpass".to_string()).await else {
+        let raw_password = "secretpass";
+        let secret_str = SecretString::new(raw_password.to_owned().into_boxed_str());
+        let Ok(password) = HashedPassword::parse(secret_str).await else {
             panic!("Invalid password");
         };
 
@@ -91,7 +97,7 @@ mod tests {
         assert_eq!(password, fetched.password);
         assert!(fetched.requires_2fa);
 
-        let Ok(email) = Email::parse("missing@example.com".to_string()) else {
+        let Ok(email) = Email::parse("missing@example.com".to_string().into()) else {
             panic!("Invalid email");
         };
 
@@ -104,10 +110,11 @@ mod tests {
         let mut store = HashmapUserStore::default();
         let raw_password = "secretpass";
         let wrong_raw_password = "wrongpass";
-        let Ok(email) = Email::parse("test@example.com".to_string()) else {
+        let Ok(email) = Email::parse("test@example.com".to_string().into()) else {
             panic!("Invalid email");
         };
-        let Ok(password) = HashedPassword::parse(raw_password.to_string()).await else {
+        let secret_str = SecretString::new(raw_password.to_owned().into_boxed_str());
+        let Ok(password) = HashedPassword::parse(secret_str).await else {
             panic!("Invalid password");
         };
 
@@ -115,17 +122,20 @@ mod tests {
         let result = store.add_user(user).await;
         assert!(result.is_ok());
 
-        let Ok(email2) = Email::parse("missing@example.com".to_string()) else {
+        let Ok(email2) = Email::parse("missing@example.com".to_string().into()) else {
             panic!("Invalid email");
         };
 
-        let result = store.validate_user(&email, raw_password).await;
+        let raw_password = SecretString::new(raw_password.to_owned().into_boxed_str());
+        let wrong_raw_password = SecretString::new(wrong_raw_password.to_owned().into_boxed_str());
+
+        let result = store.validate_user(&email, &raw_password).await;
         assert!(result.is_ok());
 
-        let valid1 = store.validate_user(&email, wrong_raw_password).await;
+        let valid1 = store.validate_user(&email, &wrong_raw_password).await;
         assert_eq!(valid1.err().unwrap(), UserStoreError::InvalidCredentials);
 
-        let valid2 = store.validate_user(&email2, raw_password).await;
+        let valid2 = store.validate_user(&email2, &raw_password).await;
         assert_eq!(valid2.err().unwrap(), UserStoreError::UserNotFound);
     }
 }
