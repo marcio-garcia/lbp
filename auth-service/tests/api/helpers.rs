@@ -1,13 +1,14 @@
 use auth_service::app_state::app_state::{BannedTokenStoreType, TwoFACodeStoreType, UserStoreType};
+use auth_service::domain::Email;
 use auth_service::services::{
-    HashmapTwoFACodeStore, HashmapUserStore, HashsetBannedTokenStore, MockEmailClient,
-    PostgresUserStore,
+    HashmapTwoFACodeStore, HashmapUserStore, HashsetBannedTokenStore, PostgresUserStore,
+    PostmarkEmailClient,
 };
 use auth_service::utils::constants::DATABASE_URL;
 use auth_service::{app_state::AppState, utils::constants::test, Application};
 use reqwest::cookie::Jar;
-use reqwest::Response;
-use secrecy::ExposeSecret;
+use reqwest::{Client, Response};
+use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
@@ -18,6 +19,7 @@ use std::str::FromStr;
 use std::{env, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, OnceCell, RwLock};
 use uuid::Uuid;
+use wiremock::MockServer;
 
 #[allow(dead_code)]
 static TEMPLATE_DB: OnceCell<String> = OnceCell::const_new();
@@ -28,6 +30,7 @@ pub struct TestApp {
     pub address: String,
     pub cookie_jar: Arc<Jar>,
     pub http_client: reqwest::Client,
+    pub email_server: MockServer,
     pub banned_token_store: BannedTokenStoreType,
     pub two_fa_code_store: TwoFACodeStoreType,
 }
@@ -48,7 +51,9 @@ impl TestApp {
     async fn build(user_store: UserStoreType) -> Self {
         let banned_token_store = Arc::new(RwLock::new(HashsetBannedTokenStore::new()));
         let two_fa_code_store = Arc::new(RwLock::new(HashmapTwoFACodeStore::default()));
-        let email_client = Arc::new(RwLock::new(MockEmailClient));
+        let email_server = MockServer::start().await;
+        let base_url = email_server.uri();
+        let email_client = Arc::new(RwLock::new(configure_postmark_email_client(base_url)));
 
         let app_state = AppState {
             user_store,
@@ -79,6 +84,7 @@ impl TestApp {
             address,
             cookie_jar,
             http_client,
+            email_server,
             banned_token_store: banned_token_store,
             two_fa_code_store: two_fa_code_store,
         }
@@ -162,9 +168,26 @@ pub async fn create_user(app: &TestApp, requires_2fa: bool) -> Response {
         "password": "password123",
     });
     let response = app.post_login(&login_body).await;
-    assert_eq!(response.status().as_u16(), 200);
+    let expected_status = if requires_2fa { 206 } else { 200 };
+    assert_eq!(response.status().as_u16(), expected_status);
 
     response
+}
+
+fn configure_postmark_email_client(base_url: String) -> PostmarkEmailClient {
+    let postmark_auth_token = SecretString::new("auth_token".to_owned().into_boxed_str());
+
+    let sender = Email::parse(SecretString::new(
+        test::email_client::SENDER.to_owned().into_boxed_str(),
+    ))
+    .unwrap();
+
+    let http_client = Client::builder()
+        .timeout(test::email_client::TIMEOUT)
+        .build()
+        .expect("Failed to build HTTP client");
+
+    PostmarkEmailClient::new(base_url, sender, postmark_auth_token, http_client)
 }
 
 #[allow(dead_code)]

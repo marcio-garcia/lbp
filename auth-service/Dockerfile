@@ -20,8 +20,11 @@ RUN cargo build --release --bin auth-service
 
 # We do not need the Rust toolchain to run the binary!
 # Start with a minimal image and copy over the binary and assets folder.
-FROM debian:buster-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/auth-service /usr/local/bin
 COPY --from=builder /app/assets /app/assets
 ENV REDIS_HOST_NAME=redis
